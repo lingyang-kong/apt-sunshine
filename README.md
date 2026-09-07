@@ -16,7 +16,7 @@ This mirror is unofficial. It is not operated, sponsored, or endorsed by LizardB
 ## What It Publishes
 
 - Stable upstream releases only.
-- All upstream Debian and Ubuntu `.deb` assets whose filenames match `sunshine-<suite>-<arch>.deb`.
+- Upstream Debian and Ubuntu `.deb` assets using the current `sunshine_<version>+<distribution><release>_<arch>.deb` format, the previous `sunshine-<suite>-<arch>.deb` format, or supported legacy names.
 - Version-specific corresponding source links for each mirrored binary via `releases.json` and the GitHub Pages index.
 - The newest complete releases that fit within the 1,000,000,000-byte GitHub Pages site limit.
 
@@ -26,6 +26,8 @@ Current suite names follow upstream naming, for example:
 - `ubuntu-24.04`
 - `ubuntu-26.04`
 - `debian-trixie`
+
+Versioned filenames map to the same suites: for example, `sunshine_2026.906.222525-1+debiantrixie_amd64.deb` maps to `debian-trixie` and architecture `amd64`.
 
 ## Automation
 

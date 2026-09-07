@@ -60,43 +60,75 @@ normalize_release_file() {
 
 suite_from_filename() {
 	local filename=$1
+	local suite
 
 	case $filename in
-	sunshine-debian.deb)
-		printf '%s\n' 'debian-legacy'
-		;;
-	sunshine.deb)
-		printf '%s\n' 'generic-legacy'
+	sunshine*.deb)
+		suite=${filename#sunshine}
+		suite=${suite%.deb}
 		;;
 	*)
-		if [[ $filename =~ ^sunshine-(.+)-(amd64|arm64)\.deb$ ]]; then
-			printf '%s\n' "${BASH_REMATCH[1]}"
+		return 1
+		;;
+	esac
 
-		elif [[ $filename =~ ^sunshine-ubuntu_([0-9]{2})_([0-9]{2})\.deb$ ||
-			$filename =~ ^sunshine-([0-9]{2})\.([0-9]{2})\.deb$ ||
-			$filename =~ ^sunshine([0-9]{2})[-.]([0-9]{2})\.deb$ ]]; then
-			printf 'ubuntu-%s.%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-
-		elif [[ $filename =~ ^sunshine-([0-9]{4})\.deb$ ]]; then
-			printf 'ubuntu-%s.%s\n' \
-				"${BASH_REMATCH[1]:0:2}" \
-				"${BASH_REMATCH[1]:2:2}"
-
-		else
+	case $suite in
+	-debian | '')
+		suite=${suite#-}
+		printf '%s-legacy\n' "${suite:-generic}"
+		;;
+	_* | -*-*)
+		local arch
+		if ! arch=$(arch_from_filename "$filename"); then
 			return 1
 		fi
+		suite=${suite%[-_]"$arch"}
+		case $suite in
+		_*)
+			if [[ $suite =~ ^_[^_]+\+(debian|ubuntu)([^_]+)$ ]]; then
+				printf '%s-%s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+			else
+				return 1
+			fi
+			;;
+		-*)
+			printf '%s\n' "${suite#-}"
+			;;
+		esac
+		;;
+	-ubuntu_[0-9][0-9]_[0-9][0-9] | -[0-9][0-9].[0-9][0-9] | [0-9][0-9][.-][0-9][0-9] | -[0-9][0-9][0-9][0-9])
+		suite=${suite#-ubuntu}
+		suite=${suite//[-._]/}
+		printf 'ubuntu-%s.%s\n' "${suite:0:2}" "${suite:2:2}"
+		;;
+	*)
+		return 1
 		;;
 	esac
 }
 
 arch_from_filename() {
 	local filename=$1
-	if [[ $filename =~ ^sunshine-(.+)-(amd64|arm64)\.deb$ ]]; then
-		printf '%s\n' "${BASH_REMATCH[2]}"
-		return 0
-	fi
+	local arch
 
-	return 1
+	case $filename in
+	sunshine-?*-*.deb | sunshine_?*_*.deb)
+		arch=${filename%.deb}
+		arch=${arch##*[-_]}
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	case $arch in
+	amd64 | arm64)
+		printf '%s\n' "$arch"
+		;;
+	*)
+		return 1
+		;;
+	esac
 }
 
 release_deb_count() {
