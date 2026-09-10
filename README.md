@@ -8,8 +8,10 @@ This mirror is unofficial. It is not operated, sponsored, or endorsed by LizardB
 
 ## Layout
 
-- `scripts/sync-apt-repo.sh`: builds the archive.
-- `templates/`: checked-in site and manifest templates.
+- `scripts/poll-release.sh`: checks whether publication is needed.
+- `scripts/package-cache.sh`: downloads and validates cached upstream packages.
+- `scripts/sync-apt-repo.sh`: selects releases and builds the archive.
+- `templates/`: checked-in site template.
 - `dist/`: generated GitHub Pages site.
 - `dist/dists/` and `dist/pool/`: conventional APT metadata and package storage.
 
@@ -31,18 +33,24 @@ Versioned filenames map to the same suites: for example, `sunshine_2026.906.2225
 
 ## Automation
 
-GitHub Actions polls the newest stable release every Monday and Thursday at 06:17 UTC. It rebuilds only when that release or any of its `.deb` asset metadata differs from the last published snapshot.
+GitHub Actions polls the newest stable release twice a month, on the 1st and 15th at 06:17 UTC. It rebuilds only when that release or any of its `.deb` asset metadata differs from the last published snapshot.
 
 The workflow:
 
 1. Compares the newest stable release and its `.deb` asset metadata with the published `releases.json`.
 2. Stops without downloading packages when that metadata is unchanged.
 3. Reads stable releases from `LizardByte/Sunshine` when a rebuild is required.
-4. Calculates how much space a new release would add and evicts the oldest retained whole releases until it fits.
-5. Downloads those packages and generates suite-specific `Packages`, `Release`, `InRelease`, and `Release.gpg` metadata.
+4. Prepares a newest-first prefix of complete releases using verified cached packages or upstream downloads.
+5. Generates suite-specific `Packages`, `Release`, `InRelease`, and `Release.gpg` metadata, then evicts oldest whole releases if the streamed Pages artifact size reaches the limit.
 6. Publishes the snapshot from `dist/` to GitHub Pages.
 
-Retained releases coexist under `pool/main/s/sunshine/<suite>/` without overwriting each other.
+Retained releases coexist under `pool/main/s/sunshine/<suite>/<arch>/<release-id>/` without overwriting each other.
+
+Packages remain byte-for-byte identical to upstream. The publisher verifies asset sizes, SHA-256 digests when supplied, package names, and architectures. `.build/sunshine-cache` persists between workflow runs; retained packages stay cached, and recently used extra packages may consume up to `PACKAGE_CACHE_EXTRA_BYTES` (default: `MAX_BYTES`). Set it to `0` to keep only published packages. Metadata refreshes reuse the signing key and do not redownload surviving packages.
+
+## Validation
+
+Run `bash tests/test-polling.sh`, `bash tests/test-retention.sh`, and `bash tests/test-packages.sh`. These use local fixtures, including temporary signing keys, and do not publish anything.
 
 ## Compliance and Provenance
 
@@ -59,10 +67,10 @@ The mirror signature attests to this repository's generated APT metadata. It doe
 Example for Ubuntu 22.04 `amd64`:
 
 ```sh
-curl -fsSL 'https://lingyang-kong.github.io/sunshine/sunshine-archive-keyring.gpg' \
+curl -fsSL 'https://lingyang-kong.github.io/apt-sunshine/sunshine-archive-keyring.gpg' \
   | sudo tee /usr/share/keyrings/sunshine-archive-keyring.gpg >/dev/null
 
-echo 'deb [signed-by=/usr/share/keyrings/sunshine-archive-keyring.gpg] https://lingyang-kong.github.io/sunshine ubuntu-22.04 main' \
+echo 'deb [signed-by=/usr/share/keyrings/sunshine-archive-keyring.gpg] https://lingyang-kong.github.io/apt-sunshine ubuntu-22.04 main' \
   | sudo tee /etc/apt/sources.list.d/sunshine.list
 
 sudo apt update

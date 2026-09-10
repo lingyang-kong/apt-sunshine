@@ -1,66 +1,96 @@
 name: Publish APT Repository
 
 on:
-    schedule:
-        - cron: '17 6 * * 1,4'
-    workflow_dispatch:
+  schedule:
+    - cron: '17 6 1,15 * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Build and publish even when the newest upstream release is unchanged'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-    contents: read
-    pages: write
-    id-token: write
+  contents: read
 
 concurrency:
-    group: sunshine-pages
-    cancel-in-progress: false
+  group: sunshine-pages
+  cancel-in-progress: false
 
 jobs:
-    publish:
-        runs-on: ubuntu-latest
-        outputs:
-            changed: ${{ steps.poll.outputs.changed }}
+  poll:
+    runs-on: ubuntu-slim
+    outputs:
+      changed: ${{ steps.poll.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - id: poll
         env:
-            APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            MAX_BYTES: 1000000000
-            PUBLISHED_MANIFEST_URL: https://lingyang-kong.github.io/sunshine/releases.json
-        steps:
-            - name: Check out repository
-              uses: actions/checkout@v4
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_BUILD: ${{ inputs.force_build || false }}
+        run: |
+          changed="$(scripts/poll-release.sh)"
+          printf 'changed=%s\n' "$changed" >>"$GITHUB_OUTPUT"
 
-            - name: Poll newest release metadata
-              id: poll
-              run: echo "changed=$(scripts/sync-apt-repo.sh --check-newest-release "$PUBLISHED_MANIFEST_URL")" >>"$GITHUB_OUTPUT"
+  build:
+    needs: poll
+    if: needs.poll.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - name: Install repository tools
+        id: install
+        background: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install --assume-yes --no-install-recommends apt-utils dpkg-dev gnupg jq
 
-            - name: Install repository tools
-              if: steps.poll.outputs.changed == 'true'
-              run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg jq
+      - uses: actions/configure-pages@v5
+        background: true
 
-            - name: Build APT repository
-              if: steps.poll.outputs.changed == 'true'
-              run: scripts/sync-apt-repo.sh
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-            - name: Configure GitHub Pages
-              if: steps.poll.outputs.changed == 'true'
-              uses: actions/configure-pages@v5
+      - uses: actions/cache/restore@v4
+        with:
+          path: .build/sunshine-cache
+          key: sunshine-deb-cache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sunshine-deb-cache-${{ runner.os }}-
 
-            - name: Upload Pages artifact
-              if: steps.poll.outputs.changed == 'true'
-              uses: actions/upload-pages-artifact@v3
-              with:
-                  path: dist
+      - wait: install
 
-    deploy:
-        needs: publish
-        if: needs.publish.outputs.changed == 'true'
-        runs-on: ubuntu-latest
-        permissions:
-            pages: write
-            id-token: write
-        environment:
-            name: github-pages
-            url: ${{ steps.deployment.outputs.page_url }}
-        steps:
-            - name: Deploy Pages artifact
-              id: deployment
-              uses: actions/deploy-pages@v4
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: scripts/sync-apt-repo.sh
+
+      - uses: actions/cache/save@v4
+        background: true
+        with:
+          path: .build/sunshine-cache
+          key: sunshine-deb-cache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-slim
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
